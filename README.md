@@ -1,7 +1,7 @@
 # pylcaptcha
 `pylcaptcha` is a modern, high-performance, and stealthy Python library designed to bypass modern anti-bot protections (such as Cloudflare Turnstile and Google Recaptcha V2/V3) while seamlessly integrating with high-speed HTTP clients for scraping and API automation.
 
-By combining browser-based kinematic solvers (`Playwright`/`Camoufox`) with asynchronous HTTP clients (`curl-cffi`), `pycaptcha` allows you to solve interactive verification challenges natively and reuse those sessions for lightweight API requests.
+By combining browser-based kinematic solvers (`Playwright`/`Camoufox`) with asynchronous HTTP clients (`curl-cffi`), `pylcaptcha` allows you to solve interactive verification challenges natively and reuse those sessions for lightweight API requests.
 
 ---
 
@@ -16,7 +16,7 @@ By combining browser-based kinematic solvers (`Playwright`/`Camoufox`) with asyn
 ---
 ## 📦 Installation
 
-You can install `pycaptcha` directly from PyPI via `pip`:
+You can install `pylcaptcha` directly from PyPI via `pip`:
 
 ```bash
 pip install pylcaptcha
