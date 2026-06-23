@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pylcaptcha" # Make sure the name is unique on pypi.org
+version = "1.0.0"
+authors = [
+    { name = "Yuriy", email = "uravasinski@gmail.com" },
+]
+description = "A clean, reusable CAPTCHA-bypassing and scraping client"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "playwright>=1.0.0",
+    "curl-cffi>=0.5.0",
+    "camoufox",
+    "camoufox[geoip]",
+    "ultralytics",
+]
