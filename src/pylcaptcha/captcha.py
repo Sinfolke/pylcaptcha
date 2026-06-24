@@ -377,7 +377,19 @@ class Captcha:
             return None
     async def _make_click(self, element: DOMNode, fast = True, is_last=False):
         await self.mouse.click(element.locator, fast=fast)
-
+    async def check_g_captcha(self, wait_ms = 3000):
+        """
+            Check that g captcha is on the page by waiting for it
+            increase wait_ms on bad connection
+        """
+        document = DOM(self.page)
+        try:
+            anchor_frame = document.frame("iframe[title*='reCAPTCHA'], iframe[src*='api2/anchor']")
+            anchor_checkbox = anchor_frame.querySelector('#recaptcha-anchor')
+            await anchor_checkbox.waitVisible(wait_ms)
+            return True
+        except Exception:
+            return False
     async def solve_g_captcha(self) -> str | None:
         screenshot_path = str(PARENT / "captcha-debug" / "last_captcha.png")
         screenshot_error_path = str(PARENT / "captcha-debug" / "debug_error.png")
@@ -455,11 +467,12 @@ class Captcha:
                         img.clean(overwrite=True)
                         tile_indices = self._solve_with_detection_model(img, target_label)
                     else:
-                        tile_indices = self._solve_with_classification_model(img, 0.75, target_label)
+                        tile_indices = self._solve_with_classification_model(img, 0.52, target_label)
                 except Exception as e:
                     print(f"Ошибка ИИ-модели: {e}")
                     tile_indices = []
                 finally:
+                    # FIX 1: Stop the random wandering worker BEFORE human-like clicking begins
                     stop_wander.set()
                     try:
                         await wander_task
@@ -522,6 +535,8 @@ class Captcha:
                             await asyncio.sleep(random.uniform(0.12, 0.28))
 
                         while clicked_indices:
+                            # If you want to wander while waiting for tiles to fade,
+                            # manage its lifetime precisely within this inner block scope.
                             stop_reactive = asyncio.Event()
                             reactive_task = asyncio.create_task(
                                 self.mouse.wander_randomly(target_area.locator, stop_reactive))
@@ -541,6 +556,7 @@ class Captcha:
                                 await asyncio.sleep(0.2)
 
                             await asyncio.sleep(0.5)
+                            # Stop the wander task before executing clicks on fresh tiles
                             stop_reactive.set()
                             try:
                                 await reactive_task
@@ -552,15 +568,15 @@ class Captcha:
 
                             for idx in ready_to_check:
                                 tile = cells.nth(idx)
-                                img_bytes = await tile.locator.screenshot()  # Omitting 'path' returns a bytes object
+                                img_bytes = await tile.locator.screenshot()
                                 if self._ai_verify_single_tile(img_bytes, target_label):
                                     tiles_to_monitor[idx] = await tile.locator.locator('img').get_attribute('src')
+                                    # No collision now because reactive_task was joined above
                                     await self.mouse.move_to_element_naturally(tile.locator)
                                     await self._make_click(tile, fast=True)
                                     clicked_indices.add(idx)
                                     await asyncio.sleep(random.uniform(0.2, 0.4))
 
-                        # 🌟 FIXED: Disappearing captchas can auto-pass without clicking a verify button
                         await asyncio.sleep(0.6)
                         try:
                             if await anchor_checkbox.getAttribute("aria-checked") == "true":

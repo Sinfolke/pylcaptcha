@@ -30,7 +30,7 @@ class ShyMouse:
         }
 
         self.config = {
-            "fatigueEnabled": options.get("fatigueEnabled", True),
+            "fatigueEnabled": options.get("fatigueEnabled", False),
             "fatigueThreshold": options.get("fatigueThreshold", 20),
             "actionCount": 0,
             "maxFatigue": options.get("maxFatigue", 100),
@@ -39,16 +39,16 @@ class ShyMouse:
             "minAttentionSpan": 0.80,
             "baseReactionTime": options.get("baseReactionTime", 200),
             "reactionTimeVariance": options.get("reactionTimeVariance", 80),
-            "curveComplexity": options.get("curveComplexity", "high"),
+            "curveComplexity": options.get("curveComplexity", "low"),
             "debug": options.get("debug", False),
             "hesitationProbability": 0.08,
             "microCorrectionFrequency": 0.15,
             "targetDriftEnabled": True,
             "minPollingInterval": 6.9,
             "maxPollingInterval": 16.6,
-            "typicalPollingInterval": 10,
-            "fittsA": 0.230,
-            "fittsB": 0.166,
+            "typicalPollingInterval": 15,
+            "fittsA": 0.100,
+            "fittsB": 0.050,
             "fractalDepth": 3,
             "entropyTarget": 0.65,
             "jerkSmoothness": 0.85,
@@ -942,11 +942,15 @@ class ShyMouse:
             adaptive_jitter = jitter_std_dev * min(1.5, distance_to_end / 70) * (0.8 + velocity_influence * 0.4)
 
             gaussian_noise = self.random_gaussian(0, adaptive_jitter)
+            # Split into independent X and Y Gaussian noise components
+            gaussian_noise_x = self.random_gaussian(0, adaptive_jitter)
+            gaussian_noise_y = self.random_gaussian(0, adaptive_jitter)
+
             perlin_noise_x = self.perlin_noise(i * 0.15, 0, self.motion_state["perlinSeed"]) * adaptive_jitter * 0.3
             perlin_noise_y = self.perlin_noise(0, i * 0.15, self.motion_state["perlinSeed"] + 1) * adaptive_jitter * 0.3
 
-            point["x"] += gaussian_noise + perlin_noise_x
-            point["y"] += gaussian_noise + perlin_noise_y
+            point["x"] += gaussian_noise_x + perlin_noise_x
+            point["y"] += gaussian_noise_y + perlin_noise_y
 
             if self.config["attentionSpan"] < 0.95:
                 if random.random() > self.config["attentionSpan"]:
@@ -955,9 +959,11 @@ class ShyMouse:
                     point["y"] += self.random_gaussian(0, error_magnitude * 0.25)
 
             if 0.3 < linear_t < 0.85 and random.random() < 0.12:
-                sub_movement = self.random_gaussian(0, 2.5 * self.config["fatigueMultiplier"])
-                point["x"] += sub_movement
-                point["y"] += sub_movement
+                # Split sub-movements into independent axis adjustments
+                sub_movement_x = self.random_gaussian(0, 2.5 * self.config["fatigueMultiplier"])
+                sub_movement_y = self.random_gaussian(0, 2.5 * self.config["fatigueMultiplier"])
+                point["x"] += sub_movement_x
+                point["y"] += sub_movement_y
 
             # 🛠️ FIXED: Replaced `len(points) > 0` and `points[-1]` with `prev_point`
             if prev_point is not None and random.random() < 0.2:
@@ -1054,9 +1060,9 @@ class ShyMouse:
         )
 
         for point in point_generator:
-            # Tell Playwright to hold execution until the browser tab runs its native
-            # requestAnimationFrame rendering cycle. This matches 60Hz/144Hz monitors perfectly.
-            await self.page.evaluate("() => new Promise(requestAnimationFrame)")
+            # Fluctuate the delay slightly around the 4ms mark to break mechanical consistency
+            dynamic_delay = random.uniform(2.5, 5.5)
+            await self._precise_async_sleep(dynamic_delay)
 
             # Dispatch mouse position modification
             await self.page.mouse.move(point["x"], point["y"])

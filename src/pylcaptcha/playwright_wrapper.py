@@ -67,7 +67,7 @@ class Browser:
         await self.context.route("**/*", block_resources)
 
     async def _setup_browser(self, cookie=None, block_adv=False, headless=True, Camoufox=True, PersistentContext = True, Proxy: dict[str, str] | None = None):
-        if self.browser is not None:
+        if self.page is not None:
             return
         self.camoufox_wrapper = AsyncCamoufox(
             persistent_context=PersistentContext,
@@ -101,7 +101,7 @@ class Browser:
         result = await self.page.goto(self.url, wait_until="domcontentloaded")
         return result
 
-    async def POST(self, url: str, data: dict[str, str], cookie: Optional[CookieJar] = None, block_adv: bool = False,
+    async def POST(self, url: str, data: Optional[dict[str, str]] = None, cookie: Optional[CookieJar] = None, block_adv: bool = False,
                    headless: bool = True, CamouFox: bool = True, PersistentContext: bool = True, proxy: dict[str, str] | None = None):
         self.url = url
         self.data = data
