@@ -4,28 +4,33 @@ on:
   release:
     types: [published]
 
-permissions:
-  contents: read
-
 jobs:
   release-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # 💡 CRITICAL: Allows GitHub to attach files to your release page
 
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 💡 CRITICAL: Tells GitHub to fetch all tags so hatch-vcs can read the version!
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11" # Using an explicit stable version is safer than "3.x"
+          python-version: "3.11"
 
       - name: Build release distributions
         run: |
           python -m pip install build
           python -m build
 
-      - name: Upload distributions
+      # 💡 NEW STEP: Automatically uploads the built dist files to the GitHub Release page
+      - name: Upload assets to GitHub Release
+        run: gh release upload ${{ github.event.release.tag_name }} dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload distributions as CI artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-dists
@@ -40,7 +45,7 @@ jobs:
 
     environment:
       name: pypi
-      url: https://pypi.org/p/pylcaptcha # Points directly to package page
+      url: https://pypi.org/p/pylcaptcha
 
     steps:
       - name: Retrieve release distributions
