@@ -14,7 +14,15 @@ from pylcaptcha.Image import Image
 from pylcaptcha.playwright_wrapper import DOMNode, DOM
 
 PARENT = Path(__file__).resolve().parent
-
+# Map your custom repository tags to exact standard COCO strings
+REPO_TO_COCO_MAPPING = {
+    "Bus": "bus",
+    "Traffic_Light": "traffic light",
+    "Hydrant": "fire hydrant",
+    "Bicycle": "bicycle",
+    "Motorcycle": "motorcycle",
+    "Car": "car"
+}
 class Captcha:
     DEFAULT_OPTIONS = {
         "models_root": PARENT / 'models',
@@ -56,7 +64,7 @@ class Captcha:
         # Fallback for any class not listed
         "default": 0.70
     }
-    def __init__(self, page: Page, mouse = None, options: dict[str, str] = None, captcha_wrapper: dict[str, str] = None, class_threshold: dict[str, str] = None):
+    def __init__(self, page: Page, mouse = None, YoloSeg: bool = True, options: dict[str, str] = None, captcha_wrapper: dict[str, str] = None, class_threshold: dict[str, str] = None):
         """
         Note: mouse defaults to ShyMouse, but can be accessible if  you provided the 'page' option, otherwise invoke openPage to have mouse filled
         :param page: the page that contains google captcha
@@ -70,18 +78,23 @@ class Captcha:
         self.models = {}
         self.model_paths = {}
         models_root = Path(self.options.get("models_root"))
-
-        # Map the available models without building them yet
-        for model in models_root.iterdir():
-            if model.name == self.options.get("detection_model"):
-                self.models["detection"] = YOLO(str(model))  # Load detection model eagerly
-                continue
-            if model.name.startswith("Detection"):
-                continue
-            self.model_paths[model.stem] = str(model)
+        if YoloSeg:
+            self.yolo_seg = YOLO(models_root / 'yolo26l.pt')
+            self.yolo_cls = YOLO(models_root / 'yolo26l-cls.pt')
+        else:
+            # Map the available models without building them yet
+            for model in models_root.iterdir():
+                if model.name == self.options.get("detection_model"):
+                    self.models["detection"] = YOLO(str(model))  # Load detection model eagerly
+                    continue
+                if model.name.startswith("Detection"):
+                    continue
+                self.model_paths[model.stem] = str(model)
 
     def _get_model(self, target_label: str) -> YOLO:
         """Retrieves a cached model instance or lazy-loads it on demand."""
+        if self.yolo_seg:
+            return self.yolo_seg
         if target_label not in self.models:
             path = self.model_paths.get(target_label)
             if not path:
@@ -359,6 +372,72 @@ class Captcha:
             selected = refined
 
         return sorted(selected)
+
+    def _solve_with_segmentation_model(self, img, target: str):
+        """
+        Solves ReCaptcha using a generic YOLO Segmentation model.
+        Checks if the actual object pixels overlap with grid sectors.
+        """
+        # 1. Fallback to the loaded segmentation model
+        seg_model = self.yolo_seg
+
+        # 2. Convert target prompt to standard COCO dataset string format
+        normalized_target = REPO_TO_COCO_MAPPING.get(target.lower(), target.lower())
+
+        # 3. Predict on the FULL image grid at once
+        results = seg_model.predict(
+            img.img,
+            imgsz=640,  # 640px is highly recommended for segmentation models
+            conf=0.25,  # Adjust confidence if it's missing trickier elements
+            iou=0.45,
+            retina_masks=True,  # CRITICAL: Forces mask array dimensions to match img.img shape perfectly
+            verbose=False,
+        )
+
+        h, w, _ = img.img.shape
+        rows, cols = img.rows, img.cols
+        tile_w = w / cols
+        tile_h = h / rows
+
+        selected_tiles = set()
+
+        # MINIMUM PIXEL THRESHOLD
+        # Requires at least 15 pixels of the target object to exist in a tile to prevent noise selection
+        MIN_PIXEL_THRESHOLD = 15
+
+        for res in results:
+            if res.masks is None:
+                continue
+
+            # Extract underlying binary masks array and bounding boxes
+            masks = res.masks.data
+            boxes = res.boxes
+
+            for box, mask in zip(boxes, masks):
+                cls_idx = int(box.cls[0])
+                cls_name = res.names[cls_idx].lower()
+
+                # Ignore everything except our active target class
+                if cls_name != normalized_target:
+                    continue
+
+                # Convert PyTorch tensor mask to a Boolean NumPy array
+                mask_np = mask.cpu().numpy().astype(bool) if hasattr(mask, 'cpu') else mask.astype(bool)
+
+                # Evaluate which grid positions host the object pixels
+                for r in range(rows):
+                    for c in range(cols):
+                        r_start, r_end = int(r * tile_h), int((r + 1) * tile_h)
+                        c_start, c_end = int(c * tile_w), int((c + 1) * tile_w)
+
+                        # Slice out the mask segment for this specific tile
+                        tile_mask_zone = mask_np[r_start:r_end, c_start:c_end]
+
+                        # Count how many target pixels inhabit this tile
+                        if tile_mask_zone.sum() > MIN_PIXEL_THRESHOLD:
+                            selected_tiles.add(r * cols + c)
+
+        return sorted(list(selected_tiles))
     def _get_next_screenshot_index(self, path: Path):
         max_i = 0
         for file in path.glob("captcha_task (*.png"):
@@ -459,21 +538,24 @@ class Captcha:
                     await asyncio.sleep(1.0)
                     continue
 
-                stop_wander = asyncio.Event()
-                wander_task = asyncio.create_task(self.mouse.wander_randomly(target_area.locator, stop_wander))
+                # stop_wander = asyncio.Event()
+                # wander_task = asyncio.create_task(self.mouse.wander_randomly(target_area.locator, stop_wander))
 
                 try:
-                    if current_mode == "detect":
-                        img.clean(overwrite=True)
-                        tile_indices = self._solve_with_detection_model(img, target_label)
+                    if self.yolo_seg:
+                        tile_indices = self._solve_with_segmentation_model(img, target_label)
                     else:
-                        tile_indices = self._solve_with_classification_model(img, 0.52, target_label)
+                        if current_mode == "detect":
+                            img.clean(overwrite=True)
+                            tile_indices = self._solve_with_detection_model(img, target_label)
+                        else:
+                            tile_indices = self._solve_with_classification_model(img, 0.52, target_label)
                 except Exception as e:
                     print(f"Ошибка ИИ-модели: {e}")
                     tile_indices = []
                 finally:
                     # FIX 1: Stop the random wandering worker BEFORE human-like clicking begins
-                    stop_wander.set()
+                    # stop_wander.set()
                     try:
                         await wander_task
                     except Exception:
@@ -537,9 +619,9 @@ class Captcha:
                         while clicked_indices:
                             # If you want to wander while waiting for tiles to fade,
                             # manage its lifetime precisely within this inner block scope.
-                            stop_reactive = asyncio.Event()
-                            reactive_task = asyncio.create_task(
-                                self.mouse.wander_randomly(target_area.locator, stop_reactive))
+                            # stop_reactive = asyncio.Event()
+                            # reactive_task = asyncio.create_task(
+                            #     self.mouse.wander_randomly(target_area.locator, stop_reactive))
 
                             ready_to_check = []
                             start_poll = time.time()
@@ -557,7 +639,7 @@ class Captcha:
 
                             await asyncio.sleep(0.5)
                             # Stop the wander task before executing clicks on fresh tiles
-                            stop_reactive.set()
+                            # stop_reactive.set()
                             try:
                                 await reactive_task
                             except Exception:
@@ -948,12 +1030,12 @@ class Captcha:
 
             # 5. CONCURRENT REAL-TOKEN VALIDATION LOGIC
             print("Checking live token registration status...")
-            stop_wandering = asyncio.Event()
-
-            # Pass frame_element context to wander locally while waiting for token resolution
-            wander_task = asyncio.create_task(
-                self.mouse.wander_randomly(frame_element, stop_wandering)
-            )
+            # stop_wandering = asyncio.Event()
+            #
+            # # Pass frame_element context to wander locally while waiting for token resolution
+            # wander_task = asyncio.create_task(
+            #     self.mouse.wander_randomly(frame_element, stop_wandering)
+            # )
 
             resolved_token = None
             try:
@@ -995,9 +1077,9 @@ class Captcha:
                         print("⚠️ Verification signature timed out.")
                         resolved_token = None
 
-            finally:
-                stop_wandering.set()
-                await wander_task
+            # finally:
+            #     stop_wandering.set()
+            #     await wander_task
 
             return resolved_token
 

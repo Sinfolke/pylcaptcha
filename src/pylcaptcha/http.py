@@ -19,12 +19,33 @@ class Options(BaseModel):
     g_auto_token_track: bool = True
     browser_headless_mode: bool = False
 class BrowserHTTP:
-    def __init__(self, options: Options = Options()):
-        self.session = AsyncSession(impersonate='firefox135')
-        self.browser = Browser()
+    def __init__(self, options: Options = Options(), proxy: dict = None):
+        self.options = options
+
+        proxy_str = None
+
+        if proxy:
+            server = proxy.get("server")
+
+            # Camoufox format: username/password separated
+            username = proxy.get("username")
+            password = proxy.get("password")
+
+            if username and password:
+                # insert credentials into URL
+                proto, rest = server.split("://", 1)
+                proxy_str = f"{proto}://{username}:{password}@{rest}"
+            else:
+                proxy_str = server
+
+        self.session = AsyncSession(
+            impersonate="firefox135",
+            proxies=proxy_str
+        )
+
+        self.browser = Browser(proxy)
         self.cf_token = None
         self.gc_token = None
-        self.options = options
     async def __aenter__(self):
         """Triggers when entering the 'async with' block."""
         return self

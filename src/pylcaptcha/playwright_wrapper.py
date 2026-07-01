@@ -11,13 +11,14 @@ from playwright.async_api import Page, Route, Locator, async_playwright, Viewpor
 from camoufox.async_api import AsyncCamoufox
 
 class Browser:
-    def __init__(self):
+    def __init__(self, proxy: dict):
         self.url: Optional[str] = None
         self.data: Optional[dict] = None
         self.camoufox_wrapper = None
         self.browser = None
         self.context = None
         self.page: Optional[Page] = None
+        self.proxy = proxy
 
     async def _inject_cookies(self, cookie_jar: CookieJar, domain: str):
         playwright_cookies = []
@@ -66,9 +67,11 @@ class Browser:
 
         await self.context.route("**/*", block_resources)
 
-    async def _setup_browser(self, cookie=None, block_adv=False, headless=True, Camoufox=True, PersistentContext = True, Proxy: dict[str, str] | None = None):
+    async def _setup_browser(self, cookie=None, block_adv=False, headless=True, Camoufox=True, PersistentContext = True, Proxy: dict | None = None):
         if self.page is not None:
             return
+        if not Proxy and self.proxy:
+            Proxy = self.proxy
         self.camoufox_wrapper = AsyncCamoufox(
             persistent_context=PersistentContext,
             user_data_dir="./camoufox_session_data" if PersistentContext else None,
