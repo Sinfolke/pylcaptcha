@@ -37,10 +37,12 @@ class BrowserHTTP:
                 proxy_str = f"{proto}://{username}:{password}@{rest}"
             else:
                 proxy_str = server
-
         self.session = AsyncSession(
             impersonate="firefox135",
-            proxies=proxy_str
+            proxies={
+                'http': proxy_str,
+                'https': proxy_str,
+            }
         )
 
         self.browser = Browser(proxy)

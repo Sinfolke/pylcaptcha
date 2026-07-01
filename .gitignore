@@ -1,3 +1,6 @@
 dist
 .venv
 .idea
+/home/ura/Programming/pylcaptcha/src/pylcaptcha/models/yolo26l.pt
+/home/ura/Programming/pylcaptcha/src/pylcaptcha/models/yolo26l-seg.pt
+/home/ura/Programming/pylcaptcha/src/pylcaptcha/models/yolo26l-cls.pt
